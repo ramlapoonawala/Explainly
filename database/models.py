@@ -29,6 +29,10 @@ class Session(Base):
     common_errors           = Column(Text, nullable=True)
     created_at              = Column(DateTime, default=datetime.utcnow)
 
+    # ── Question Bank columns ─────────────────────────────────────────────
+    status                  = Column(String, default='draft')   # draft / published / closed
+    published_at            = Column(DateTime, nullable=True)
+
 # ── Responses table ───────────────────────────────────────────────────────
 class Response(Base):
     __tablename__ = "responses"
@@ -59,6 +63,8 @@ class Response(Base):
     representations_used    = Column(Text, nullable=True)
     representation_strength = Column(String, nullable=True)
     misconception_flag      = Column(Boolean, default=False)
+    careless_error_flag     = Column(Boolean, default=False)
+    error_type              = Column(String, nullable=True)
     notation_errors         = Column(Text, nullable=True)
 
     # Teacher actions

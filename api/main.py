@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import groq
 from google import genai
 import fitz
+import time
 
 # ── Setup ─────────────────────────────────────────────────────────────────
 load_dotenv()
@@ -62,7 +63,6 @@ def pdf_to_image(pdf_path: str, output_path: str) -> str:
     pix.save(output_path)
     return output_path
 
-# ── Extract question text from image using Gemini ─────────────────────────
 def extract_question_from_image(image_path: str) -> str:
     try:
         with open(image_path, "rb") as f:
@@ -87,11 +87,16 @@ If you cannot find a clear question write: Question from uploaded image."""
                 ]
             }]
         )
-        return response.text.strip()
+        import re
+        cleaned = response.text.strip()
+        # Remove LaTeX math delimiters $...$ and \(...\)
+        cleaned = re.sub(r'\$([^$]+)\$', r'\1', cleaned)
+        cleaned = re.sub(r'\\\(([^)]+)\\\)', r'\1', cleaned)
+        return cleaned
 
     except Exception as e:
         return f"Question from uploaded image (extraction failed: {str(e)})"
-    
+
 def parse_feedback(response_text: str) -> dict:
     feedback = {
         "score": 1,
@@ -101,6 +106,8 @@ def parse_feedback(response_text: str) -> dict:
         "ai_teacher_note": "",
         "language_detected": "English",
         "misconception_flag": False,
+        "careless_error_flag": False,
+        "error_type": "NONE",
         "notation_errors": "None detected",
         "representation_strength": "ABSENT"
     }
@@ -116,6 +123,8 @@ def parse_feedback(response_text: str) -> dict:
         "TEACHER_NOTE:": "ai_teacher_note",
         "LANGUAGE_DETECTED:": "language_detected",
         "MISCONCEPTION_FLAG:": None,
+        "CARELESS_ERROR_FLAG:": None,
+        "ERROR_TYPE:": "error_type",
         "NOTATION_ERRORS:": "notation_errors",
         "REPRESENTATION_STRENGTH:": "representation_strength"
     }
@@ -140,7 +149,9 @@ def parse_feedback(response_text: str) -> dict:
                         feedback["score"] = 1
                 elif prefix == "MISCONCEPTION_FLAG:":
                     feedback["misconception_flag"] = value.upper() == "YES"
-                elif prefix in ["LANGUAGE_DETECTED:", "REPRESENTATION_STRENGTH:"]:
+                elif prefix == "CARELESS_ERROR_FLAG:":
+                    feedback["careless_error_flag"] = value.upper() == "YES"
+                elif prefix in ["LANGUAGE_DETECTED:", "REPRESENTATION_STRENGTH:", "ERROR_TYPE:"]:
                     feedback[key] = value
                 else:
                     current_key = key
@@ -163,7 +174,6 @@ def analyse_with_gemini(
     image_path: str = None
 ) -> dict:
 
-    # Build submission context based on what was provided
     if transcript and image_path:
         submission_context = f"""The student submitted BOTH a voice explanation AND written working.
 
@@ -192,7 +202,18 @@ No voice explanation was provided.
 
 THE IMAGE shows the student's written working or canvas drawing.
 Evaluate based on the written working alone.
-Note in your teacher note that no verbal explanation was provided."""
+
+CRITICAL INSTRUCTIONS FOR WRITTEN ONLY ASSESSMENT:
+- You cannot hear the student's reasoning or intent
+- Before penalising any step ask: could this be a strategy?
+- If the final answer is correct work backwards to understand
+  how they got there — do not assume errors along the way
+- Give benefit of the doubt on every ambiguous step
+- Note in your teacher note which specific steps you could
+  not fully interpret so the teacher can review them
+- Do NOT assume a misconception just because the working
+  looks unconventional — unconventional is not wrong
+- Lower confidence = lower score impact on ambiguous steps"""
         has_image = True
 
     else:
@@ -286,6 +307,39 @@ Look carefully for hidden misconceptions:
   * Fractions: adding numerators and denominators separately
 - Cross reference verbal and visual — they may contradict
 
+DIMENSION 5b — ERROR CLASSIFICATION (CRITICAL DISTINCTION)
+When you find an error you MUST classify it as one of three types:
+
+MISCONCEPTION — Wrong conceptual understanding
+Examples:
+- Student thinks angles multiply not add
+- Student adds numerators and denominators in fractions
+- Student confuses ratio with fraction
+Impact: HIGH — needs reteaching
+Flag: misconception_flag = YES
+
+NOTATION ERROR — Correct understanding wrong mathematical writing
+Examples:
+- Chained equals signs: 180 ÷ 10 = 18 × 2 = 36
+- Missing degree symbols
+- Using = as an arrow
+Impact: MEDIUM — needs explicit notation instruction
+Flag: notation_errors = YES
+
+CARELESS ERROR — Correct understanding correct method wrong arithmetic
+Examples:
+- Student sets up ratio correctly but miscalculates one multiplication
+- Student identifies correct angle relationship but arithmetic slip
+- Correct method but wrong final number
+Impact: LOW — student just needs to check their work
+Flag: careless_error = YES
+Do NOT flag as misconception
+
+NEVER confuse a careless error with a misconception.
+A student who writes 4:5:3 correctly and divides by 12
+but gets 16 instead of 15 has made a CARELESS ERROR not a misconception.
+Their understanding is correct — their arithmetic slipped.
+
 DIMENSION 6 — MATHEMATICAL NOTATION ACCURACY
 Look carefully for notation errors:
 
@@ -312,6 +366,50 @@ FOR EACH NOTATION ERROR:
 
 A student with perfect steps but incorrect notation
 should receive SCORE 3 maximum.
+═══════════════════════════════════════════════════════════════
+BEFORE YOU SCORE — FOUR QUESTIONS TO ASK YOURSELF:
+═══════════════════════════════════════════════════════════════
+
+Q1: WHAT METHOD DID THIS STUDENT USE?
+Describe it in one sentence before evaluating anything.
+If you cannot describe the method clearly you may have
+misread the working — give benefit of the doubt.
+Examples of valid methods that may look unusual:
+- Subtraction inside multiplication
+  = decomposition strategy (e.g. 23×8 = 23×10 - 23×2)
+- Addition inside multiplication
+  = repeated addition strategy
+- Unusual grouping of numbers
+  = creative partitioning
+- Working right to left or bottom to top
+  = unconventional layout, not an error
+Always ask: could this unconventional step be intentional?
+If yes — credit it, do not penalise it.
+
+Q2: DOES THE FINAL ANSWER MAKE SENSE?
+If the final answer is correct, the method was likely
+valid even if it looks unconventional.
+Work backwards from the correct answer to understand
+how the student got there before penalising any step.
+A correct answer via an unusual method = mathematical
+creativity, not an error.
+
+Q3: WHAT CAN YOU NOT TELL FROM THIS SUBMISSION?
+Written only = you cannot know verbal reasoning or intent
+Voice only = you cannot know the written method used
+Be explicit in your teacher note about what is missing.
+Do NOT fill gaps with negative assumptions.
+Do NOT lower the score because information is missing —
+only lower the score for what you can clearly see is wrong.
+
+Q4: IS THIS A MISCONCEPTION OR JUST UNCLEAR WORKING?
+Before flagging misconception_flag = YES ask:
+- Can I clearly identify wrong conceptual understanding?
+- Or is the working just hard to read or unconventional?
+Unclear working with correct answer = NOT a misconception
+Reserve misconception_flag = YES only for cases where
+wrong understanding is clearly evident — not just unclear.
+
 
 ═══════════════════════════════════════════════════════════════
 SCORING RUBRIC:
@@ -331,6 +429,7 @@ SCORE 3 — Procedural Competence with Developing Understanding
 ✗ Explanation is procedural — explains WHAT not WHY
 ✗ Minor misconception or reasoning partially unclear
 ✗ Minor notation errors present
+Unclear working with correct answer = Score  minimum.
 
 SCORE 2 — Partial Understanding with Significant Gaps
 ✗ Answer may be incorrect OR steps contain errors
@@ -341,8 +440,11 @@ SCORE 2 — Partial Understanding with Significant Gaps
 SCORE 1 — Limited Understanding Shown
 ✗ Incorrect answer with incorrect or absent working
 ✗ No reasoning present
-✗ Fundamental misconception detected
+✗ Fundamental misconception clearly detected
 ✗ Cannot connect explanation to mathematical work
+IMPORTANT: Reserve Score 1 for responses where you can
+clearly identify wrong understanding — not just unclear
+or unconventional working. When in doubt score up not down.
 
 ═══════════════════════════════════════════════════════════════
 LANGUAGE AND TONE:
@@ -356,6 +458,59 @@ Be warm, encouraging, and specific.
 Never use the word wrong — use needs refinement instead.
 Always acknowledge any visual model the student used by name.
 
+REGIONAL MATHEMATICAL VOCABULARY — accept all of these as correct:
+- Upar wala / اوپر والا = numerator
+- Neeche wala / نیچے والا = denominator
+- Todna / توڑنا = to decompose or break apart
+- Jama / جمع = addition
+- Tafriq / تفریق = subtraction
+- Zarb / ضرب = multiplication
+- Taqseem / تقسیم = division
+- Accept any regional equivalent of standard mathematical terms
+
+═══════════════════════════════════════════════════════════════
+LANGUAGE RULES — STRICTLY FOLLOW FOR ALL STUDENT FEEDBACK:
+═══════════════════════════════════════════════════════════════
+
+SIMPLICITY:
+- Maximum reading age 13 years old for student feedback
+- Write as if explaining to a bright 12 year old
+- Short sentences — maximum 15 words per sentence
+- No paragraph longer than two sentences
+
+BANNED WORDS AND PHRASES IN STUDENT FEEDBACK:
+- binomial → say "bracket with two terms"
+- coefficient → say "number in front"
+- expand / expanding → say "multiply out"
+- middle terms cancel → say "these two parts add up to zero"
+- FOIL method → say "multiply each part of the first
+  bracket by each part of the second bracket"
+- algebraic expression → say "expression with letters"
+- substitute → say "replace the letter with a number"
+- simplify → say "tidy up"
+- factorise → say "rewrite as brackets"
+- hence → say "so" or "this means"
+
+FEEDBACK LENGTH:
+- WHAT_WAS_RIGHT — maximum two sentences
+- WHAT_TO_IMPROVE — maximum two sentences
+- If you want to write more — cut it down to the most
+  important single point only
+
+GUIDING QUESTIONS OVER EXPLANATIONS:
+- Never explain the correct method in WHAT_TO_IMPROVE
+- Instead ask one guiding question the student can act on
+- The question should require trying one small step only
+- Good: "What do you get when you multiply +2 by -2?"
+- Bad: "Remember that the middle terms cancel each other"
+
+SPECIFIC OVER GENERAL:
+- Always reference the student's actual working
+- Good: "You correctly found x² as the first term"
+- Bad: "You showed good mathematical understanding"
+- Good: "Check the middle term in your first answer"
+- Bad: "Review your expansion method"
+
 ═══════════════════════════════════════════════════════════════
 RESPOND IN THIS EXACT FORMAT — NO EXTRA TEXT:
 ═══════════════════════════════════════════════════════════════
@@ -365,18 +520,39 @@ SCORE: [1, 2, 3, or 4]
 REPRESENTATIONS_USED: [List visual models and representations identified.
 If none write: Symbolic only — no visual model detected]
 
-WHAT_WAS_RIGHT: [One or two encouraging sentences. Reference:
-- The visual model they used if any — name it specifically
-- Their actual words or written steps
-- What their reasoning showed about understanding]
+WHAT_WAS_RIGHT: [Exactly two sentences maximum.
+Sentence 1 — name one specific thing the student did
+correctly — reference their actual working not general praise.
+Sentence 2 — explain what that correct step shows about
+their understanding.
+Rules:
+- Use simple everyday language a 12 year old understands
+- No mathematical jargon — say "multiply out the brackets"
+  not "expand the binomial expression"
+- Be specific — "you correctly found x² as the first term"
+  not "you showed good understanding"
+- Never say "great job" or "well done" without specifics]
 
-WHAT_TO_IMPROVE: [One or two specific sentences. Priority:
-1. Misconception — name it clearly and kindly
-2. Notation error — explain what they wrote and what it means
-3. Reasoning gap — explain WHY not just WHAT
-4. Missing visual model — suggest a specific model
-5. Procedural error — point to specific step
-Never say wrong. Never give the direct answer.]
+WHAT_TO_IMPROVE: [Exactly two sentences maximum.
+Sentence 1 — point to ONE specific step or term that
+needs attention. Name the exact part of their working.
+Sentence 2 — ask ONE guiding question that leads the
+student to discover the correction themselves.
+Rules:
+- Use simple everyday language a 12 year old understands
+- NEVER explain the correct method — ask a question instead
+- NEVER give the answer or show the correct working
+- Point to something small and specific — not everything at once
+- The question should be answerable by trying one small step
+Examples of good guiding questions:
+  "What happens when you multiply +2 by -2?"
+  "What do you notice about these two middle terms?"
+  "Can you check what 3 × -3 gives you?"
+Examples of bad what to improve:
+  "Remember that when multiplying binomials the middle
+   terms cancel" ← explains the method, does not guide
+  "You need to use the FOIL method correctly" ← jargon
+  "The answer should be x² - 4" ← gives the answer]
 
 TEACHER_NOTE: [Two sentences for teacher only:
 Sentence 1 — Is understanding genuine/conceptual or procedural?
@@ -388,6 +564,12 @@ LANGUAGE_DETECTED: [English / Roman Urdu / Sindhi / Arabic / Mixed]
 
 MISCONCEPTION_FLAG: [YES / NO]
 
+CARELESS_ERROR_FLAG: [YES / NO — was this a careless arithmetic slip
+rather than a conceptual error?]
+
+ERROR_TYPE: [MISCONCEPTION / NOTATION / CARELESS / NONE —
+most significant error type found]
+
 NOTATION_ERRORS: [List notation errors. Format each as:
 Written: [what student wrote] | Means: [mathematical meaning] | Intended: [what student meant]
 If none write: None detected — notation is mathematically accurate]
@@ -397,7 +579,6 @@ STRONG = used appropriate visual model with explanation
 DEVELOPING = attempted visual model but incomplete or unexplained
 ABSENT = no visual model used symbolic only]"""
 
-    # Build content parts
     content_parts = []
     if has_image and image_path:
         with open(image_path, "rb") as f:
@@ -410,13 +591,41 @@ ABSENT = no visual model used symbolic only]"""
         })
     content_parts.append({"text": prompt})
 
-    response = gemini_client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=[{"parts": content_parts}]
-    )
-    return parse_feedback(response.text)
+    for attempt in range(3):
+        try:
+            model = "gemini-2.5-flash" if attempt == 0 else "gemini-2.0-flash"
+            response = gemini_client.models.generate_content(
+                model=model,
+                contents=[{"parts": content_parts}]
+            )
+            return parse_feedback(response.text)
 
-# ── Scenario 1 — Analyse text only question using Groq Llama ──────────────
+        except Exception as e:
+            if "503" in str(e) or "UNAVAILABLE" in str(e) or "429" in str(e):
+                if attempt < 2:
+                    wait = (attempt + 1) * 5
+                    print(f"⚠️ Gemini busy — retrying in {wait} seconds (attempt {attempt+1}/3)")
+                    time.sleep(wait)
+                else:
+                    print("❌ Gemini unavailable after 3 attempts — returning fallback")
+                    return {
+                        "score": 1,
+                        "representations_used": "Unable to analyse",
+                        "what_was_right": "Your response was received. Your teacher will review your work shortly.",
+                        "what_to_improve": "AI feedback is temporarily unavailable. Please speak to your teacher directly.",
+                        "ai_teacher_note": "⚠️ AI service was temporarily unavailable. Please review this response manually.",
+                        "language_detected": "English",
+                        "misconception_flag": False,
+                        "careless_error_flag": False,
+                        "error_type": "NONE",
+                        "notation_errors": "None detected",
+                        "representation_strength": "ABSENT"
+                    }
+            else:
+                raise e
+
+    return parse_feedback("")
+
 def analyse_question_text_only(question: str) -> str:
     try:
         prompt = f"""You are an expert curriculum designer and teacher coach
@@ -463,8 +672,6 @@ SCORE_1_LOOKS_LIKE: [What a score 1 response typically says]"""
     except Exception as e:
         return f"Question analysis unavailable: {str(e)}"
 
-
-# ── Scenario 2 — Analyse image question using Gemini Vision ──────────────
 def analyse_question_with_image(question: str, image_path: str) -> str:
     try:
         with open(image_path, "rb") as f:
@@ -476,8 +683,8 @@ specialising in mathematics education and teaching for understanding.
 A teacher has set this question for students:
 "{question}"
 
-The image above shows the diagram, figure, or problem the students 
-need to work with. Reference the specific values, angles, lines, 
+The image above shows the diagram, figure, or problem the students
+need to work with. Reference the specific values, angles, lines,
 and geometric relationships shown in the image throughout your analysis.
 
 Generate a teaching preparation brief to help the teacher
@@ -485,9 +692,9 @@ anticipate student thinking before sharing with the class.
 
 Respond in this EXACT format:
 
-MODEL_ANSWER: [A complete accurate answer referencing the specific 
-values and relationships shown in the image — include conceptual 
-explanation not just procedure. Name the specific angles, values, 
+MODEL_ANSWER: [A complete accurate answer referencing the specific
+values and relationships shown in the image — include conceptual
+explanation not just procedure. Name the specific angles, values,
 or measurements visible in the diagram.]
 
 EXPECTED_REPRESENTATIONS:
@@ -512,21 +719,37 @@ reference specific values from the diagram]
 
 SCORE_1_LOOKS_LIKE: [What a score 1 response typically says]"""
 
-        response = gemini_client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[{
-                "parts": [
-                    {
-                        "inline_data": {
-                            "mime_type": "image/png",
-                            "data": image_data
-                        }
-                    },
-                    {"text": prompt}
-                ]
-            }]
-        )
-        return response.text
+        for attempt in range(3):
+            try:
+                model = "gemini-2.5-flash" if attempt == 0 else "gemini-2.0-flash"
+                response = gemini_client.models.generate_content(
+                    model=model,
+                    contents=[{
+                        "parts": [
+                            {
+                                "inline_data": {
+                                    "mime_type": "image/png",
+                                    "data": image_data
+                                }
+                            },
+                            {"text": prompt}
+                        ]
+                    }]
+                )
+                return response.text
+
+            except Exception as e:
+                if "503" in str(e) or "UNAVAILABLE" in str(e) or "429" in str(e):
+                    if attempt < 2:
+                        wait = (attempt + 1) * 5
+                        print(f"⚠️ Gemini busy — retrying in {wait} seconds (attempt {attempt+1}/3)")
+                        time.sleep(wait)
+                    else:
+                        return "Question analysis temporarily unavailable. Please try again later."
+                else:
+                    raise e
+
+        return "Question analysis unavailable."
 
     except Exception as e:
         return f"Question analysis unavailable: {str(e)}"
@@ -560,6 +783,8 @@ Student {i+1} ({r.student_name}):
 - Representations used: {r.representations_used or 'None'}
 - Representation strength: {r.representation_strength or 'ABSENT'}
 - Misconception detected: {r.misconception_flag}
+- Careless error detected: {r.careless_error_flag if hasattr(r, 'careless_error_flag') else False}
+- Error type: {r.error_type if hasattr(r, 'error_type') else 'NONE'}
 - Notation errors: {r.notation_errors or 'None'}
 - What was right: {r.what_was_right or 'N/A'}
 - What to improve: {r.what_to_improve or 'N/A'}
@@ -667,6 +892,7 @@ Be specific about whole class vs small group vs individual action.]"""
 def health():
     return {"status": "ok", "app": "Explainly", "version": "1.0"}
 
+# ── GET /sessions — returns status and published_at for dashboard sorting ─
 @app.get("/sessions")
 def get_all_sessions(db: Session = Depends(get_db)):
     sessions = db.query(SessionModel).order_by(
@@ -678,18 +904,44 @@ def get_all_sessions(db: Session = Depends(get_db)):
             "question": s.question,
             "question_image_filename": s.question_image_filename,
             "created_at": s.created_at,
-            "student_link": s.student_link
+            "student_link": s.student_link,
+            "status": s.status,
+            "published_at": s.published_at
         }
         for s in sessions
     ]
 
+# ── GET /sessions/by-link/{student_link} — MUST be before /{session_id} ──
+# Gap 1 fix: student access via UUID with status check
+# Gap 4 fix: placed before {session_id} to avoid route conflict
+@app.get("/sessions/by-link/{student_link}")
+def get_session_by_link(student_link: str, db: Session = Depends(get_db)):
+    session = db.query(SessionModel).filter(
+        SessionModel.student_link == student_link
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.status == 'draft':
+        raise HTTPException(status_code=403, detail="This session is not active yet")
+
+    if session.status == 'closed':
+        raise HTTPException(status_code=403, detail="This session has ended")
+
+    return {
+        "session_id": session.id,
+        "question": session.question,
+        "question_image_filename": session.question_image_filename,
+        "status": session.status
+    }
+
+# ── POST /sessions — creates as draft by default ──────────────────────────
 @app.post("/sessions")
 async def create_session(
     question: str = Form(None),
     question_image: UploadFile = File(None),
     db: Session = Depends(get_db)
 ):
-    # Validate — exactly one must be provided
     has_text = question and question.strip()
     has_image = question_image and question_image.filename
 
@@ -708,7 +960,6 @@ async def create_session(
     question_image_filename = None
     image_path = None
 
-    # ── SCENARIO 2 — Image only ───────────────────────────────────────────
     if has_image:
         ext = question_image.filename.split(".")[-1].lower()
         question_image_filename = f"question_{uuid.uuid4()}.{ext}"
@@ -717,7 +968,6 @@ async def create_session(
         with open(image_path, "wb") as f:
             shutil.copyfileobj(question_image.file, f)
 
-        # Convert PDF to image if needed
         if ext == "pdf":
             png_filename = question_image_filename.replace(".pdf", ".png")
             png_path = os.path.join(UPLOAD_DIR, png_filename)
@@ -725,27 +975,21 @@ async def create_session(
             question_image_filename = png_filename
             image_path = png_path
 
-        # Extract question text from image using Gemini
         question = extract_question_from_image(image_path)
-
-        # Analyse using Gemini (has image context)
         question_analysis = analyse_question_with_image(question, image_path)
-
-    # ── SCENARIO 1 — Text only ────────────────────────────────────────────
     else:
-        # Analyse using Groq Llama (text only)
         question_analysis = analyse_question_text_only(question)
 
-    # Generate unique student link
     student_link = str(uuid.uuid4())
 
-    # Save to database
     session = SessionModel(
         question=question,
         student_link=student_link,
         question_image_filename=question_image_filename,
         model_answer=question_analysis,
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
+        status='draft',
+        published_at=None
     )
     db.add(session)
     db.commit()
@@ -755,8 +999,122 @@ async def create_session(
         "session_id": session.id,
         "student_link": student_link,
         "question": question,
-        "question_analysis": question_analysis
+        "question_analysis": question_analysis,
+        "status": session.status
     }
+
+# ── PATCH /sessions/{id}/publish ──────────────────────────────────────────
+@app.patch("/sessions/{session_id}/publish")
+def publish_session(session_id: int, db: Session = Depends(get_db)):
+    session = db.query(SessionModel).filter(
+        SessionModel.id == session_id
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.status != 'draft':
+        raise HTTPException(
+            status_code=400,
+            detail=f"Session is already {session.status} — only drafts can be published"
+        )
+
+    session.status = 'published'
+    session.published_at = datetime.utcnow()
+    db.commit()
+
+    return {
+        "message": "✅ Session published — students can now access it",
+        "session_id": session_id,
+        "status": "published",
+        "published_at": session.published_at,
+        "student_link": session.student_link
+    }
+
+# ── PATCH /sessions/{id}/close ────────────────────────────────────────────
+@app.patch("/sessions/{session_id}/close")
+def close_session(session_id: int, db: Session = Depends(get_db)):
+    session = db.query(SessionModel).filter(
+        SessionModel.id == session_id
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.status != 'published':
+        raise HTTPException(
+            status_code=400,
+            detail=f"Session is {session.status} — only published sessions can be closed"
+        )
+
+    session.status = 'closed'
+    db.commit()
+
+    return {
+        "message": "✅ Session closed — students can no longer submit responses",
+        "session_id": session_id,
+        "status": "closed"
+    }
+
+# ── PATCH /sessions/{id} — edit question text, draft only ─────────────────
+# Gap 2 fix: checks for original image before choosing analysis method
+@app.patch("/sessions/{session_id}")
+async def edit_session(
+    session_id: int,
+    question: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    session = db.query(SessionModel).filter(
+        SessionModel.id == session_id
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.status != 'draft':
+        raise HTTPException(
+            status_code=400,
+            detail="Only draft sessions can be edited"
+        )
+
+    session.question = question.strip()
+
+    if session.question_image_filename:
+        image_path = os.path.join(UPLOAD_DIR, session.question_image_filename)
+        session.model_answer = analyse_question_with_image(question, image_path)
+    else:
+        session.model_answer = analyse_question_text_only(question)
+
+    db.commit()
+
+    return {
+        "message": "✅ Draft updated successfully",
+        "session_id": session_id,
+        "question": session.question,
+        "status": session.status
+    }
+
+# ── DELETE /sessions/{id} — draft only ───────────────────────────────────
+@app.delete("/sessions/{session_id}")
+def delete_session(session_id: int, db: Session = Depends(get_db)):
+    session = db.query(SessionModel).filter(
+        SessionModel.id == session_id
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.status != 'draft':
+        raise HTTPException(
+            status_code=400,
+            detail="Only draft sessions can be deleted"
+        )
+
+    db.delete(session)
+    db.commit()
+
+    return {
+        "message": "✅ Draft deleted successfully",
+        "session_id": session_id
+    }
+
+# ── GET /sessions/{id} — teacher use only, no status block ───────────────
 @app.get("/sessions/{session_id}")
 def get_session(session_id: int, db: Session = Depends(get_db)):
     session = db.query(SessionModel).filter(
@@ -764,13 +1122,17 @@ def get_session(session_id: int, db: Session = Depends(get_db)):
     ).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
     return {
         "session_id": session.id,
         "question": session.question,
         "question_image_filename": session.question_image_filename,
-        "student_link": session.student_link
+        "student_link": session.student_link,
+        "status": session.status,
+        "published_at": session.published_at
     }
 
+# ── POST /sessions/{id}/respond — published sessions only ─────────────────
 @app.post("/sessions/{session_id}/respond")
 async def submit_response(
     session_id: int,
@@ -786,6 +1148,12 @@ async def submit_response(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    if session.status != 'published':
+        raise HTTPException(
+            status_code=403,
+            detail="This session is not accepting responses"
+        )
+
     has_audio  = audio_file and audio_file.filename
     has_canvas = canvas_image and canvas_image.filename
     has_photo  = uploaded_photo and uploaded_photo.filename
@@ -796,7 +1164,6 @@ async def submit_response(
             detail="At least one of audio, canvas, or photo must be provided"
         )
 
-    # Save audio
     audio_filename = None
     transcript = None
     if has_audio:
@@ -807,7 +1174,6 @@ async def submit_response(
             shutil.copyfileobj(audio_file.file, f)
         transcript = transcribe_audio(audio_path)
 
-    # Save canvas
     canvas_filename = None
     canvas_path = None
     if has_canvas:
@@ -816,7 +1182,6 @@ async def submit_response(
         with open(canvas_path, "wb") as f:
             shutil.copyfileobj(canvas_image.file, f)
 
-    # Save uploaded photo
     uploaded_image_filename = None
     uploaded_path = None
     if has_photo:
@@ -832,10 +1197,8 @@ async def submit_response(
             uploaded_image_filename = png_filename
             uploaded_path = png_path
 
-    # Determine image to analyse — uploaded photo takes priority over canvas
     image_to_analyse = uploaded_path or canvas_path
 
-    # Determine submission mode
     if transcript and image_to_analyse:
         submission_mode = "both"
     elif transcript:
@@ -843,14 +1206,12 @@ async def submit_response(
     else:
         submission_mode = "written_only"
 
-    # Analyse with Gemini
     feedback = analyse_with_gemini(
         question=session.question,
         transcript=transcript,
         image_path=image_to_analyse
     )
 
-    # Save to database
     response = ResponseModel(
         session_id=session_id,
         student_name=student_name,
@@ -867,6 +1228,8 @@ async def submit_response(
         representations_used=feedback["representations_used"],
         representation_strength=feedback["representation_strength"],
         misconception_flag=feedback["misconception_flag"],
+        careless_error_flag=feedback.get("careless_error_flag", False),
+        error_type=feedback.get("error_type", "NONE"),
         notation_errors=feedback["notation_errors"],
         submitted_at=datetime.utcnow()
     )
@@ -884,10 +1247,13 @@ async def submit_response(
         "representations_used": feedback["representations_used"],
         "representation_strength": feedback["representation_strength"],
         "misconception_flag": feedback["misconception_flag"],
+        "careless_error_flag": feedback.get("careless_error_flag", False),
+        "error_type": feedback.get("error_type", "NONE"),
         "notation_errors": feedback["notation_errors"],
         "submission_mode": submission_mode
     }
 
+# ── GET /sessions/{id}/responses ──────────────────────────────────────────
 @app.get("/sessions/{session_id}/responses")
 def get_responses(session_id: int, db: Session = Depends(get_db)):
     responses = db.query(ResponseModel).filter(
@@ -908,6 +1274,8 @@ def get_responses(session_id: int, db: Session = Depends(get_db)):
             "representations_used": r.representations_used,
             "representation_strength": r.representation_strength,
             "misconception_flag": r.misconception_flag,
+            "careless_error_flag": r.careless_error_flag,
+            "error_type": r.error_type,
             "notation_errors": r.notation_errors,
             "canvas_image_filename": r.canvas_image_filename,
             "uploaded_image_filename": r.uploaded_image_filename,
@@ -919,6 +1287,7 @@ def get_responses(session_id: int, db: Session = Depends(get_db)):
         for r in responses
     ]
 
+# ── PATCH /responses/{id} — teacher annotation ────────────────────────────
 @app.patch("/responses/{response_id}")
 async def annotate_response(
     response_id: int,
@@ -942,6 +1311,7 @@ async def annotate_response(
 
     return {"message": "✅ Response annotated successfully"}
 
+# ── GET /sessions/{id}/class-summary — Gap 3 fix: blocked on drafts ───────
 @app.get("/sessions/{session_id}/class-summary")
 def get_class_summary(session_id: int, db: Session = Depends(get_db)):
     session = db.query(SessionModel).filter(
@@ -949,6 +1319,12 @@ def get_class_summary(session_id: int, db: Session = Depends(get_db)):
     ).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.status == 'draft':
+        raise HTTPException(
+            status_code=400,
+            detail="Class summary is only available for published or closed sessions"
+        )
 
     responses = db.query(ResponseModel).filter(
         ResponseModel.session_id == session_id
