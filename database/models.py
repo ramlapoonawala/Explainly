@@ -32,6 +32,7 @@ class Session(Base):
     # ── Question Bank columns ─────────────────────────────────────────────
     status                  = Column(String, default='draft')   # draft / published / closed
     published_at            = Column(DateTime, nullable=True)
+    question_source         = Column(String, default='text')  # text / image / both
 
 # ── Responses table ───────────────────────────────────────────────────────
 class Response(Base):

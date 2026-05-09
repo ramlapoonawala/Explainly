@@ -104,8 +104,92 @@
   .rerec-btn { padding: 12px 16px; border-radius: var(--r); border: 1.5px solid rgba(134,157,150,0.3); background: var(--offwhite); font-size: 12px; color: var(--teal-2); cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.2s; }
   .rerec-btn:hover { border-color: #DC2626; color: #DC2626; }
 
-  .submit-bar { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 1px solid rgba(162,195,164,0.3); padding: 14px 20px; box-shadow: 0 -4px 16px rgba(32,30,80,0.1); z-index: 100; max-width: 640px; margin: 0 auto; }
-  @media (max-width: 640px) { .submit-bar { left: 0; right: 0; } }
+/* ── Two column layout ───────────────────────────────────────────── */
+.page-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px 20px 40px;
+  align-items: start;
+}
+
+/* ── Left column — question stays sticky ─────────────────────────── */
+.left-col {
+  position: sticky;
+  top: 70px;
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+}
+
+.question-card-sticky {
+  background: white;
+  border-radius: var(--rlg);
+  padding: 24px;
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(162,195,164,0.25);
+}
+
+/* ── Right column — scrolls normally ────────────────────────────── */
+.right-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 20px;
+}
+
+/* ── Submit area inside right column ────────────────────────────── */
+.submit-area {
+  background: white;
+  border-radius: var(--rlg);
+  padding: 16px 20px;
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(162,195,164,0.25);
+  position: sticky;
+  bottom: 20px;
+}
+
+/* ── Sticky tool row — always visible above canvas ── */
+.tool-row-sticky {
+  position: sticky;
+  top: 60px;
+  z-index: 50;
+  background: white;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(134,157,150,0.15);
+  margin-bottom: 10px;
+}
+
+/* ── Mobile — stack vertically ───────────────────────────────────── */
+@media (max-width: 768px) {
+  .page-layout {
+    grid-template-columns: 1fr;
+    padding: 16px 16px 100px;
+  }
+
+  .left-col {
+    position: relative;
+    top: 0;
+    max-height: none;
+    overflow-y: visible;
+  }
+
+  .submit-area {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    z-index: 100;
+  }
+}
+  
+  
+
   .submit-btn { width: 100%; padding: 15px; border-radius: var(--r); border: none; background: var(--indigo); color: white; font-size: 15px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.2s; letter-spacing: 0.02em; }
   .submit-btn:hover { background: #2D2A6E; }
   .submit-btn:disabled { background: rgba(134,157,150,0.4); cursor: not-allowed; }
@@ -168,105 +252,131 @@
   <span class="header-right" id="session-badge">Student response</span>
 </div>
 
-<div class="scroll-area">
+<div class="page-layout">
 
-  <div class="card">
-    <div class="card-lbl">Your question</div>
-    <div class="question-text" id="question-text">Loading...</div>
-    <img id="question-img" class="question-img hidden" src="" alt="Question">
-  </div>
-
-  <div class="card">
-    <div class="card-lbl">Your name</div>
-    <input type="text" id="student-name" class="name-input" placeholder="Enter your full name — e.g. Ahmed Khan">
-  </div>
-
-  <div class="card">
-    <div class="card-lbl">How to respond</div>
-    <div class="mode-row">
-      <div class="mode-chip active" id="mode-both" onclick="setMode('both')">
-        <div class="mode-em">🎤✏️</div>
-        <div class="mode-nm">Voice + Written</div>
-        <div class="mode-rec">Recommended</div>
-      </div>
-      <div class="mode-chip" id="mode-voice" onclick="setMode('voice')">
-        <div class="mode-em">🎤</div>
-        <div class="mode-nm">Voice only</div>
-        <div class="mode-rec">Speak your answer</div>
-      </div>
-      <div class="mode-chip" id="mode-written" onclick="setMode('written')">
-        <div class="mode-em">✏️</div>
-        <div class="mode-nm">Written only</div>
-        <div class="mode-rec">Draw or upload</div>
-      </div>
+  <!-- LEFT COLUMN — Question -->
+  <div class="left-col">
+    <div class="card question-card-sticky">
+      <div class="card-lbl">Your question</div>
+      <div class="question-text" id="question-text">Loading...</div>
+      <img id="question-img" class="question-img hidden" src="" alt="Question">
     </div>
   </div>
 
-  <div class="input-card">
-    <div class="tab-bar" id="tab-bar">
-      <div class="tab-btn active" id="tab-draw" onclick="switchInputTab('draw')">
-        <span class="tab-em">✏️</span>
-        <span class="tab-lbl">Draw</span>
-        <span class="tab-done hidden" id="done-draw">✓ done</span>
-      </div>
-      <div class="tab-btn" id="tab-upload" onclick="switchInputTab('upload')">
-        <span class="tab-em">📷</span>
-        <span class="tab-lbl">Upload</span>
-        <span class="tab-done hidden" id="done-upload">✓ done</span>
-      </div>
-      <div class="tab-btn" id="tab-voice" onclick="switchInputTab('voice')">
-        <span class="tab-em">🎤</span>
-        <span class="tab-lbl">Voice</span>
-        <span class="tab-done hidden" id="done-voice">✓ done</span>
-      </div>
+  <!-- RIGHT COLUMN — Response -->
+  <div class="right-col">
+
+    <div class="card">
+      <div class="card-lbl">Your name</div>
+      <input type="text" id="student-name" class="name-input"
+        placeholder="Enter your full name — e.g. Ahmed Khan">
     </div>
 
-    <div class="tab-panel active" id="panel-draw">
-      <div id="canvas-wrap"><canvas id="draw-canvas"></canvas></div>
-      <div class="tool-row">
-        <span class="tool-chip active" id="pen-chip" onclick="setTool('pen')">✏️ Pen</span>
-        <span class="tool-chip" id="eraser-chip" onclick="setTool('eraser')">⬜ Eraser</span>
-        <span class="tool-chip" onclick="clearCanvas()">🗑️ Clear</span>
-        <span class="tool-chip" onclick="expandCanvas()">⬛ More space</span>
-        <div class="size-row">
-          <div class="sz active" style="width:8px;height:8px;" onclick="setSize(2,this)"></div>
-          <div class="sz" style="width:12px;height:12px;" onclick="setSize(5,this)"></div>
-          <div class="sz" style="width:16px;height:16px;" onclick="setSize(8,this)"></div>
+    <div class="card">
+      <div class="card-lbl">How to respond</div>
+      <div class="mode-row">
+        <div class="mode-chip active" id="mode-both" onclick="setMode('both')">
+          <div class="mode-em">🎤✏️</div>
+          <div class="mode-nm">Voice + Written</div>
+          <div class="mode-rec">Recommended</div>
         </div>
-      </div>
-      <div style="font-size:11px;color:var(--teal-2);margin-top:10px;text-align:center;">Draw your working — use finger or mouse</div>
-    </div>
-
-    <div class="tab-panel" id="panel-upload">
-      <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
-        <div class="drop-icon">📎</div>
-        <div class="drop-txt"><b>Tap to upload</b> a photo or PDF<br>of your written working</div>
-      </div>
-      <input type="file" id="file-input" accept="image/*,.pdf" style="display:none" onchange="handleFile(this)">
-      <img id="upload-preview" class="upload-preview hidden" src="" alt="Your working">
-      <div class="pdf-pill hidden" id="pdf-pill">📄 PDF uploaded successfully</div>
-      <button class="rm-btn hidden" id="rm-btn" onclick="removeFile()">✕ Remove file</button>
-      <div style="font-size:11px;color:var(--teal-2);margin-top:12px;text-align:center;">JPG, PNG, or PDF — photo of your paper working</div>
-    </div>
-
-    <div class="tab-panel" id="panel-voice">
-      <div class="voice-wrap">
-        <div class="timer" id="timer">0:00</div>
-        <button class="rec-btn" id="rec-btn" onclick="toggleRec()">🎤</button>
-        <div class="rec-status" id="rec-status">Tap to start recording</div>
-        <div class="audio-row hidden" id="audio-row">
-          <button class="play-btn" onclick="playBack()">▶ Play back recording</button>
-          <button class="rerec-btn" onclick="reRecord()">↺</button>
+        <div class="mode-chip" id="mode-voice" onclick="setMode('voice')">
+          <div class="mode-em">🎤</div>
+          <div class="mode-nm">Voice only</div>
+          <div class="mode-rec">Speak your answer</div>
+        </div>
+        <div class="mode-chip" id="mode-written" onclick="setMode('written')">
+          <div class="mode-em">✏️</div>
+          <div class="mode-nm">Written only</div>
+          <div class="mode-rec">Draw or upload</div>
         </div>
       </div>
     </div>
+
+    <div class="input-card">
+
+      <div class="tab-bar" id="tab-bar">
+        <div class="tab-btn active" id="tab-draw" onclick="switchInputTab('draw')">
+          <span class="tab-em">✏️</span>
+          <span class="tab-lbl">Draw</span>
+          <span class="tab-done hidden" id="done-draw">✓ done</span>
+        </div>
+        <div class="tab-btn" id="tab-upload" onclick="switchInputTab('upload')">
+          <span class="tab-em">📷</span>
+          <span class="tab-lbl">Upload</span>
+          <span class="tab-done hidden" id="done-upload">✓ done</span>
+        </div>
+        <div class="tab-btn" id="tab-voice" onclick="switchInputTab('voice')">
+          <span class="tab-em">🎤</span>
+          <span class="tab-lbl">Voice</span>
+          <span class="tab-done hidden" id="done-voice">✓ done</span>
+        </div>
+      </div>
+
+      <div class="tab-panel active" id="panel-draw">
+        <div id="canvas-wrap"><canvas id="draw-canvas"></canvas></div>
+        <div class="tool-row">
+          <span class="tool-chip active" id="pen-chip" onclick="setTool('pen')">✏️ Pen</span>
+          <span class="tool-chip" id="eraser-chip" onclick="setTool('eraser')">⬜ Eraser</span>
+          <span class="tool-chip" onclick="clearCanvas()">🗑️ Clear</span>
+          <span class="tool-chip" onclick="expandCanvas()">⬇️ More space</span>
+          <div class="size-row">
+            <div class="sz active" style="width:8px;height:8px;" onclick="setSize(2,this)"></div>
+            <div class="sz" style="width:12px;height:12px;" onclick="setSize(5,this)"></div>
+            <div class="sz" style="width:16px;height:16px;" onclick="setSize(8,this)"></div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--teal-2);margin-top:10px;text-align:center;">
+          Draw your working — use finger or mouse
+        </div>
+      </div>
+
+      <div class="tab-panel" id="panel-upload">
+        <div class="drop-zone" id="drop-zone"
+          onclick="document.getElementById('file-input').click()">
+          <div class="drop-icon">📎</div>
+          <div class="drop-txt"><b>Tap to upload</b> a photo or PDF<br>of your written working</div>
+        </div>
+        <input type="file" id="file-input" accept="image/*,.pdf"
+          style="display:none" onchange="handleFile(this)">
+        <img id="upload-preview" class="upload-preview hidden" src="" alt="Your working">
+        <div class="pdf-pill hidden" id="pdf-pill">📄 PDF uploaded successfully</div>
+        <button class="rm-btn hidden" id="rm-btn" onclick="removeFile()">✕ Remove file</button>
+        <div style="font-size:11px;color:var(--teal-2);margin-top:12px;text-align:center;">
+          JPG, PNG, or PDF — photo of your paper working
+        </div>
+      </div>
+
+      <div class="tab-panel" id="panel-voice">
+        <div class="voice-wrap">
+          <div class="timer" id="timer">0:00</div>
+          <button class="rec-btn" id="rec-btn" onclick="toggleRec()">🎤</button>
+          <div class="rec-status" id="rec-status">Tap to start recording</div>
+          <div class="audio-row hidden" id="audio-row">
+            <button class="play-btn" onclick="playBack()">▶ Play back recording</button>
+            <button class="rerec-btn" onclick="confirmReRecord()">🗑️ Delete & re-record</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Submit bar inside right column on desktop -->
+    <div class="submit-area">
+      <button class="submit-btn" id="submit-btn" onclick="submitResponse()" disabled>
+        Submit my explanation →
+      </button>
+      <div class="submit-hint" id="submit-hint">
+        Enter your name and add at least one response
+      </div>
+    </div>
+
   </div>
+
 </div>
 
-<div class="submit-bar">
-  <button class="submit-btn" id="submit-btn" onclick="submitResponse()" disabled>Submit my explanation →</button>
-  <div class="submit-hint" id="submit-hint">Enter your name and add at least one response</div>
-</div>
+
+
 
 <!-- Status screen — draft or closed session -->
 <div class="status-screen" id="status-screen">
@@ -354,7 +464,6 @@ async function loadSession() {
   try {
     const r = await fetch(`/sessions/by-link/${studentLink}`);
 
-    // Gap 7 fix: handle 403 status with clear message
     if (r.status === 403) {
       const data = await r.json();
       const detail = data.detail || 'This session is not available.';
@@ -372,22 +481,24 @@ async function loadSession() {
 
     const d = await r.json();
 
-    // Gap 6 fix: store session_id from response for submit call
     sessionId = d.session_id;
-
-    document.getElementById('question-text').textContent = d.question;
     document.getElementById('session-badge').textContent = `Session #${d.session_id}`;
 
-    if (d.question_image_filename) {
+    if (d.question_source === 'image') {
+      document.getElementById('question-text').classList.add('hidden');
       const img = document.getElementById('question-img');
       img.src = `/uploads/${d.question_image_filename}`;
       img.classList.remove('hidden');
+
+    } else {
+      document.getElementById('question-text').textContent = d.question;
     }
 
   } catch {
     document.getElementById('question-text').textContent = 'Could not load question. Please check your link or try again.';
   }
 }
+
 
 // ── Status screen ──────────────────────────────────────────────────────
 function showStatusScreen(icon, title, msg) {

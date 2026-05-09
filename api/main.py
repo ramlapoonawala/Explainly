@@ -349,6 +349,19 @@ EQUALS SIGN MISUSE (most common):
   This implies 180 ÷ 10 = 36 which is FALSE
   Correct: write on separate lines
 
+CRITICAL — EQUALS SIGN USED CORRECTLY:
+Chained equals signs are NOT an error when all
+expressions are genuinely mathematically equal.
+Example: 1.7×10^7 = 17×10^6 = 17,000,000
+All three are equal — this is correct notation
+showing equivalent forms of the same number.
+Do NOT flag this as a notation error.
+
+BEFORE FLAGGING ANY EQUALS SIGN USAGE ASK:
+Is A = B = C actually mathematically true?
+If YES — correct notation — do not flag
+If NO  — notation error — flag it
+
 FRACTION NOTATION:
 - Adding fractions as 1/2 + 1/3 = 2/5
 
@@ -906,7 +919,8 @@ def get_all_sessions(db: Session = Depends(get_db)):
             "created_at": s.created_at,
             "student_link": s.student_link,
             "status": s.status,
-            "published_at": s.published_at
+            "published_at": s.published_at,
+            "question_source": s.question_source
         }
         for s in sessions
     ]
@@ -932,10 +946,11 @@ def get_session_by_link(student_link: str, db: Session = Depends(get_db)):
         "session_id": session.id,
         "question": session.question,
         "question_image_filename": session.question_image_filename,
+        "question_source": session.question_source,
         "status": session.status
     }
 
-# ── POST /sessions — creates as draft by default ──────────────────────────
+# POST /sessions
 @app.post("/sessions")
 async def create_session(
     question: str = Form(None),
@@ -951,14 +966,9 @@ async def create_session(
             detail="Please provide either a question text or a question image"
         )
 
-    if has_text and has_image:
-        raise HTTPException(
-            status_code=400,
-            detail="Please provide either question text OR an image — not both"
-        )
-
     question_image_filename = None
     image_path = None
+    question_source = 'text'
 
     if has_image:
         ext = question_image.filename.split(".")[-1].lower()
@@ -975,9 +985,19 @@ async def create_session(
             question_image_filename = png_filename
             image_path = png_path
 
-        question = extract_question_from_image(image_path)
-        question_analysis = analyse_question_with_image(question, image_path)
+        if has_text:
+            # Scenario 1 — teacher typed question AND uploaded diagram
+            question_source = 'both'
+            question = question.strip()
+            question_analysis = analyse_question_with_image(question, image_path)
+        else:
+            # Scenario 2 — image only
+            question_source = 'image'
+            question = extract_question_from_image(image_path)
+            question_analysis = analyse_question_with_image(question, image_path)
     else:
+        # Scenario 3 — text only
+        question_source = 'text'
         question_analysis = analyse_question_text_only(question)
 
     student_link = str(uuid.uuid4())
@@ -989,7 +1009,8 @@ async def create_session(
         model_answer=question_analysis,
         created_at=datetime.utcnow(),
         status='draft',
-        published_at=None
+        published_at=None,
+        question_source=question_source
     )
     db.add(session)
     db.commit()
@@ -1000,9 +1021,9 @@ async def create_session(
         "student_link": student_link,
         "question": question,
         "question_analysis": question_analysis,
-        "status": session.status
+        "status": session.status,
+        "question_source": question_source
     }
-
 # ── PATCH /sessions/{id}/publish ──────────────────────────────────────────
 @app.patch("/sessions/{session_id}/publish")
 def publish_session(session_id: int, db: Session = Depends(get_db)):
