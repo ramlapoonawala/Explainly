@@ -763,6 +763,19 @@ function handleQuestionImage(input) {
   }
 }
 
+function cleanLatex(text) {
+  if (!text) return text;
+  text = text.replace(/\\text\{([^}]+)\}/g, '$1');
+  text = text.replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '$1/$2');
+  text = text.replace(/\$([^$]+)\$/g, '$1');
+  text = text.replace(/\\times/g, '×');
+  text = text.replace(/\\approx/g, '≈');
+  text = text.replace(/\\\(/g, '').replace(/\\\)/g, '');
+  text = text.replace(/\*\*([^*]+)\*\*/g, '$1');
+  text = text.replace(/\\/g, '');
+  return text;
+}
+
 // ── Create session — creates as draft ─────────────────────────────────────
 async function createSession() {
   const btn = document.getElementById('create-btn');
@@ -797,7 +810,7 @@ async function createSession() {
     document.getElementById('link-section').classList.add('hidden');
 
     if (data.question_analysis) {
-      document.getElementById('analysis-body').textContent = data.question_analysis;
+      document.getElementById('analysis-body').textContent = cleanLatex(data.question_analysis);
       document.getElementById('analysis-card').style.display = 'block';
     }
 
