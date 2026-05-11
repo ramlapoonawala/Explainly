@@ -9,4 +9,6 @@ COPY . .
 
 RUN mkdir -p uploads
 
-CMD uvicorn api.main:app --host 0.0.0.0 --port $PORT
+EXPOSE 8000
+
+ENTRYPOINT ["python", "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
