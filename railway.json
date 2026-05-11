@@ -1,9 +1,8 @@
 {
   "build": {
-    "builder": "NIXPACKS"
+    "builder": "DOCKERFILE"
   },
   "deploy": {
-    "startCommand": "bash start.sh",
     "restartPolicyType": "ON_FAILURE"
   }
 }
