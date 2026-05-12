@@ -22,6 +22,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+import os
+os.makedirs("frontend", exist_ok=True)
+os.makedirs("uploads", exist_ok=True)
 app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
@@ -926,8 +929,7 @@ def get_all_sessions(db: Session = Depends(get_db)):
     ]
 
 # ── GET /sessions/by-link/{student_link} — MUST be before /{session_id} ──
-# Gap 1 fix: student access via UUID with status check
-# Gap 4 fix: placed before {session_id} to avoid route conflict
+
 @app.get("/sessions/by-link/{student_link}")
 def get_session_by_link(student_link: str, db: Session = Depends(get_db)):
     session = db.query(SessionModel).filter(
